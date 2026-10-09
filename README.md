@@ -11,8 +11,7 @@ values during deployment.
 
 ## Start here
 
-Follow [the step-by-step setup guide](docs/SETUP.md). A web version is also
-available in the [TechJedi Holocron](https://holocron.techjedi.me/frappe-helpdesk/).
+Follow [the step-by-step setup guide](docs/SETUP.md).
 
 Do not deploy a moving `latest` image. Select a published release tag, record
 the resulting image digest, and use that tag in Dockhand.
