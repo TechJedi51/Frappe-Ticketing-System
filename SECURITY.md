@@ -52,8 +52,8 @@ If sensitive data is committed:
 
 Only the reverse proxy should accept Internet traffic. Do not publish MariaDB,
 Redis, backend, or WebSocket ports. Store production secrets in Dockhand or an
-approved secret-management system, restrict administrative access, and use a
-dedicated least-privilege integration user for optional submission services.
+approved secret-management system, restrict administrative access, and use
+dedicated least-privilege users for integrations.
 
 Backups contain sensitive application and ticket data. Encrypt them, restrict
 access, set an approved retention period, and regularly test restoration.

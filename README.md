@@ -29,8 +29,6 @@ Release images are published as
 | `.github/workflows/build-image.yml` | Tag-driven image build and GHCR publication |
 | `env.example` | Non-secret environment-variable template |
 | `docs/SETUP.md` | New-company deployment and configuration walkthrough |
-| `docs/PUBLIC-RELEASE-CHECKLIST.md` | Maintainer release and privacy checklist |
-| `docs/OPTIONAL-SUBMISSION-SERVICE.md` | Security requirements for an optional embedded form |
 | `scripts/audit-repository.sh` | Read-only repository and history audit |
 
 ## Architecture
@@ -78,16 +76,11 @@ Before directing users to the image, make the GHCR package public or document
 read-only authentication. Use the digest shown in the workflow summary as the
 release record.
 
-## Optional public submission form
+## Customer ticket submission
 
-The earlier `frappe-submit` prototype is intentionally not included. An
-authenticated page containing an iframe does not protect the iframe URL itself,
-and the reviewed prototype could create records without adequate authentication
-or abuse controls. The native authenticated Helpdesk customer portal is the
-recommended default.
-
-If an embedded form is still required, treat it as a separate security-reviewed
-component and follow [the submission-service requirements](docs/OPTIONAL-SUBMISSION-SERVICE.md).
+Customers can submit tickets through the licensed support mailbox or the
+authenticated Helpdesk customer portal. This repository does not include a
+separate public submission form.
 
 ## Security and privacy
 

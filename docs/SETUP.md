@@ -469,23 +469,19 @@ security and Conditional Access effects before changing the tenant.
 6. Verify SPF, DKIM, and DMARC alignment for the outgoing message.
 7. Schedule renewal of the Entra client secret before it expires.
 
-## 12. Optional ticket-submission package
+## 12. Configure customer ticket submission
 
-The public repository does not include the earlier `frappe-submit` prototype.
-Use the authenticated Helpdesk customer portal unless the organization has a
-reviewed requirement for a separate embedded form.
+Pretend Co accepts new tickets through `support@pretendco.com` and the
+authenticated Helpdesk customer portal. No separate public form is required.
 
-Do not copy the prototype into this deployment as-is. An authenticated page
-containing an iframe does not protect the iframe's direct URL. The reviewed
-prototype also needs direct authentication, least-privilege authorization,
-server-side validation, CSRF protection, throttling, and controls preventing
-untrusted users from creating customer or contact records.
-
-The repository's
-[submission-service security requirements](OPTIONAL-SUBMISSION-SERVICE.md)
-describe the work required before a future package can be considered. Treat
-that future package as a separate project and security review; it is not part
-of this setup procedure.
+1. Create a test customer contact using a fictional or approved test address.
+2. Invite that contact to the customer portal.
+3. Sign in as the test customer and create a ticket with an attachment.
+4. Confirm the ticket reaches the intended team and assignment rule.
+5. Confirm the customer can see and reply to their own tickets but cannot see
+   another customer's tickets or agent-only fields.
+6. Sign out and confirm that the portal requires authentication before showing
+   ticket data or allowing a ticket to be created.
 
 ## 13. Configure DBackup and recovery
 
@@ -502,8 +498,7 @@ restorable database backup. Configure monitoring, retention, encryption, and an
 off-host copy.
 
 Perform an isolated restore test before the service is accepted. Disable
-outbound email and any separately deployed submission service in the restored
-environment, then verify:
+outbound email in the restored environment, then verify:
 
 - Administrator and named-agent login
 - Ticket and attachment access

@@ -152,7 +152,7 @@ section "Manual review still required"
   printf '%s\n' '- Inspect every candidate file locally without sharing secret values.'
   printf '%s\n' '- Review GitHub Actions, upstream refs, image tags, and base-image digests.'
   printf '%s\n' '- Confirm env.example contains placeholders only.'
-  printf '%s\n' '- Confirm the optional submission prototype remains absent; review any future replacement separately.'
+  printf '%s\n' '- Confirm the repository contains only files intended for public release.'
   printf '%s\n' '- Confirm a repository license and third-party notices are present.'
   printf '%s\n' '- Run a container vulnerability scan on the built release image.'
 } >>"$temp_report"
