@@ -1,0 +1,203 @@
+name: ${COMPOSE_PROJECT_NAME:-frappe-helpdesk}
+
+x-customizable-image: &customizable_image
+  image: ${CUSTOM_IMAGE:-ghcr.io/techjedi51/frappe-ticketing-system}:${CUSTOM_TAG:?Set CUSTOM_TAG to a published release tag}
+  pull_policy: ${PULL_POLICY:-always}
+  restart: ${RESTART_POLICY:-unless-stopped}
+
+x-backend-defaults: &backend_defaults
+  <<: *customizable_image
+  platform: ${DOCKER_PLATFORM:-linux/amd64}
+  volumes:
+    - type: bind
+      source: ${ROOT:-/opt/docker/data}/frappe-helpdesk/sites
+      target: /home/frappe/frappe-bench/sites
+    - type: bind
+      source: ${ROOT:-/opt/docker/data}/frappe-helpdesk/logs
+      target: /home/frappe/frappe-bench/logs
+  networks:
+    - frappe
+
+services:
+  configurator:
+    <<: *backend_defaults
+    container_name: ${CONTAINER_PREFIX:-frappe-helpdesk}-configurator
+    entrypoint: ["bash", "-c"]
+    command:
+      - >-
+        set -e;
+        ls -1 apps > sites/apps.txt;
+        bench set-config -g db_host db;
+        bench set-config -gp db_port 3306;
+        bench set-config -g redis_cache "redis://redis-cache:6379";
+        bench set-config -g redis_queue "redis://redis-queue:6379";
+        bench set-config -g redis_socketio "redis://redis-queue:6379";
+        bench set-config -gp socketio_port 9000;
+        if [ -f "sites/${FRAPPE_SITE_NAME_HEADER:?Set FRAPPE_SITE_NAME_HEADER}/site_config.json" ]; then
+          bench --site "${FRAPPE_SITE_NAME_HEADER}" migrate;
+        else
+          echo "Site does not exist yet; skipping migration.";
+        fi
+    depends_on:
+      db:
+        condition: service_healthy
+      redis-cache:
+        condition: service_healthy
+      redis-queue:
+        condition: service_healthy
+    restart: "no"
+
+  backend:
+    <<: *backend_defaults
+    container_name: ${CONTAINER_PREFIX:-frappe-helpdesk}-backend
+    depends_on:
+      configurator:
+        condition: service_completed_successfully
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >-
+          curl -fsS -H "Host: ${FRAPPE_SITE_NAME_HEADER:?Set FRAPPE_SITE_NAME_HEADER}"
+          "http://127.0.0.1:8000/api/method/frappe.handler.ping" >/dev/null || exit 1
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+
+  frontend:
+    <<: *customizable_image
+    container_name: ${CONTAINER_PREFIX:-frappe-helpdesk}-frontend
+    command: ["nginx-entrypoint.sh"]
+    environment:
+      BACKEND: backend:8000
+      SOCKETIO: websocket:9000
+      FRAPPE_SITE_NAME_HEADER: ${FRAPPE_SITE_NAME_HEADER:?Set FRAPPE_SITE_NAME_HEADER}
+      UPSTREAM_REAL_IP_ADDRESS: ${UPSTREAM_REAL_IP_ADDRESS:?Set UPSTREAM_REAL_IP_ADDRESS to the proxy network CIDR}
+      UPSTREAM_REAL_IP_HEADER: ${UPSTREAM_REAL_IP_HEADER:-X-Forwarded-For}
+      UPSTREAM_REAL_IP_RECURSIVE: ${UPSTREAM_REAL_IP_RECURSIVE:-on}
+      PROXY_READ_TIMEOUT: ${PROXY_READ_TIMEOUT:-120}
+      CLIENT_MAX_BODY_SIZE: ${CLIENT_MAX_BODY_SIZE:-50m}
+    depends_on:
+      backend:
+        condition: service_started
+      websocket:
+        condition: service_started
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >-
+          curl -fsS -H "Host: ${FRAPPE_SITE_NAME_HEADER:?Set FRAPPE_SITE_NAME_HEADER}"
+          "http://127.0.0.1:8080/api/method/frappe.handler.ping" >/dev/null || exit 1
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    volumes:
+      - type: bind
+        source: ${ROOT:-/opt/docker/data}/frappe-helpdesk/sites
+        target: /home/frappe/frappe-bench/sites
+      - type: bind
+        source: ${ROOT:-/opt/docker/data}/frappe-helpdesk/logs
+        target: /home/frappe/frappe-bench/logs
+    networks:
+      frappe:
+      proxy:
+        aliases:
+          - ${FRONTEND_NETWORK_ALIAS:-frappe-helpdesk-frontend}
+
+  websocket:
+    <<: *backend_defaults
+    container_name: ${CONTAINER_PREFIX:-frappe-helpdesk}-websocket
+    command: ["node", "/home/frappe/frappe-bench/apps/frappe/socketio.js"]
+    depends_on:
+      configurator:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS 'http://127.0.0.1:9000/socket.io/?EIO=4&transport=polling' >/dev/null || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+
+  queue-short:
+    <<: *backend_defaults
+    container_name: ${CONTAINER_PREFIX:-frappe-helpdesk}-queue-short
+    command: ["bench", "worker", "--queue", "short,default"]
+    depends_on:
+      configurator:
+        condition: service_completed_successfully
+
+  queue-long:
+    <<: *backend_defaults
+    container_name: ${CONTAINER_PREFIX:-frappe-helpdesk}-queue-long
+    command: ["bench", "worker", "--queue", "long,default,short"]
+    depends_on:
+      configurator:
+        condition: service_completed_successfully
+
+  scheduler:
+    <<: *backend_defaults
+    container_name: ${CONTAINER_PREFIX:-frappe-helpdesk}-scheduler
+    command: ["bench", "schedule"]
+    depends_on:
+      configurator:
+        condition: service_completed_successfully
+
+  db:
+    image: mariadb:${MARIADB_TAG:-11.8}
+    container_name: ${CONTAINER_PREFIX:-frappe-helpdesk}-db
+    restart: ${RESTART_POLICY:-unless-stopped}
+    healthcheck:
+      test: ["CMD-SHELL", "healthcheck.sh --connect --innodb_initialized"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+      - --skip-character-set-client-handshake
+      - --skip-innodb-read-only-compressed
+    environment:
+      MYSQL_ROOT_PASSWORD: ${DB_PASSWORD:?Set DB_PASSWORD}
+    volumes:
+      - type: bind
+        source: ${ROOT:-/opt/docker/data}/frappe-helpdesk/db
+        target: /var/lib/mysql
+    networks:
+      - frappe
+
+  redis-cache:
+    image: redis:${REDIS_TAG:-8.6-alpine}
+    container_name: ${CONTAINER_PREFIX:-frappe-helpdesk}-redis-cache
+    restart: ${RESTART_POLICY:-unless-stopped}
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks:
+      - frappe
+
+  redis-queue:
+    image: redis:${REDIS_TAG:-8.6-alpine}
+    container_name: ${CONTAINER_PREFIX:-frappe-helpdesk}-redis-queue
+    restart: ${RESTART_POLICY:-unless-stopped}
+    command: ["redis-server", "--appendonly", "yes"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    volumes:
+      - type: bind
+        source: ${ROOT:-/opt/docker/data}/frappe-helpdesk/redis-queue
+        target: /data
+    networks:
+      - frappe
+
+networks:
+  frappe:
+  proxy:
+    external: true
+    name: ${PROXY_NETWORK_NAME:-proxy}

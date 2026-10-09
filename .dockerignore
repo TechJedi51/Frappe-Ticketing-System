@@ -1,0 +1,14 @@
+.git
+.github
+.env
+.env.*
+.audit-identifiers
+.DS_Store
+__MACOSX
+docs
+scripts
+frappe-helpdesk-repository-audit*.txt
+sites
+db
+redis-queue
+backups

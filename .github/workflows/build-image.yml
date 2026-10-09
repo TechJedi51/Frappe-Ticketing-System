@@ -1,0 +1,132 @@
+name: Build release image
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      image_tag:
+        description: Image tag to publish, such as v1.0.0-rc.1
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: build-image-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out configuration
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          path: config
+          persist-credentials: false
+
+      - name: Check out reviewed Frappe Docker source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          repository: frappe/frappe_docker
+          ref: 2b26e9ab8d751e5ea33bb7b930aea3550bb81ded
+          path: frappe_docker
+          persist-credentials: false
+
+      - name: Resolve image name and tag
+        id: vars
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          INPUT_TAG: ${{ inputs.image_tag }}
+          REF_NAME: ${{ github.ref_name }}
+          REPOSITORY_OWNER: ${{ github.repository_owner }}
+        run: |
+          set -euo pipefail
+          owner="${REPOSITORY_OWNER,,}"
+          if [[ "$EVENT_NAME" == "push" ]]; then
+            image_tag="$REF_NAME"
+          else
+            image_tag="$INPUT_TAG"
+          fi
+          if [[ ! "$image_tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+([.-][A-Za-z0-9][A-Za-z0-9.-]*)?$ ]]; then
+            echo "Image tags must use a version such as v1.0.0 or v1.0.0-rc.1." >&2
+            exit 1
+          fi
+          echo "image=ghcr.io/${owner}/frappe-ticketing-system" >> "$GITHUB_OUTPUT"
+          echo "tag=$image_tag" >> "$GITHUB_OUTPUT"
+
+      - name: Record the moving Telephony dependency
+        id: telephony
+        shell: bash
+        run: |
+          set -euo pipefail
+          commit="$(git ls-remote https://github.com/frappe/telephony.git refs/heads/develop | cut -f1)"
+          test -n "$commit"
+          echo "commit=$commit" >> "$GITHUB_OUTPUT"
+
+      - name: Add the custom Containerfile
+        shell: bash
+        run: cp config/Containerfile frappe_docker/Containerfile.custom
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
+
+      - name: Sign in to the GitHub Container Registry
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and publish the image
+        id: build
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
+        with:
+          context: frappe_docker
+          file: frappe_docker/Containerfile.custom
+          platforms: linux/amd64
+          push: true
+          tags: ${{ steps.vars.outputs.image }}:${{ steps.vars.outputs.tag }}
+          build-args: |
+            FRAPPE_BRANCH=version-16
+            FRAPPE_PATH=https://github.com/frappe/frappe
+            CACHE_BUST=${{ github.run_id }}
+          secret-files: |
+            apps_json=${{ github.workspace }}/config/apps.json
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          provenance: true
+          sbom: true
+
+      - name: Verify the published image
+        shell: bash
+        env:
+          IMAGE: ${{ steps.vars.outputs.image }}
+          IMAGE_TAG: ${{ steps.vars.outputs.tag }}
+        run: |
+          set -euo pipefail
+          docker pull "$IMAGE:$IMAGE_TAG"
+          docker run --rm --entrypoint bash "$IMAGE:$IMAGE_TAG" -lc \
+            'bench version && test -d apps/helpdesk && test -d apps/telephony'
+
+      - name: Record the immutable digest
+        shell: bash
+        env:
+          IMAGE: ${{ steps.vars.outputs.image }}
+          IMAGE_TAG: ${{ steps.vars.outputs.tag }}
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          {
+            echo "### Published image"
+            echo
+            echo "\`$IMAGE:$IMAGE_TAG\`"
+            echo
+            echo "Digest: \`$DIGEST\`"
+            echo
+            echo "Telephony develop commit: \`${{ steps.telephony.outputs.commit }}\`"
+          } >> "$GITHUB_STEP_SUMMARY"

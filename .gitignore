@@ -1,0 +1,20 @@
+# Local configuration and secrets
+.env
+.env.*
+!env.example
+.audit-identifiers
+
+# Operating-system and archive metadata
+.DS_Store
+__MACOSX/
+
+# Local reports and temporary files
+frappe-helpdesk-repository-audit*.txt
+*.bak
+*.tmp
+
+# Runtime data must remain outside source control
+sites/
+db/
+redis-queue/
+backups/
